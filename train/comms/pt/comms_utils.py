@@ -11,6 +11,7 @@ from __future__ import (
     unicode_literals,
 )
 
+import re
 import logging
 import os
 import random
@@ -1675,20 +1676,20 @@ class paramCommsBench(ABC):
         #   1) prefer the values passed to PARAM, i.e., through --master-ip and --master-port
         #   2) check and use the env. variable, i.e., MASTER_ADDR and MASTER_PORT
         #   3) if both #1 and #2 are not set, pre-defined default values will be used
-        if "MASTER_ADDR" in os.environ:
-            if args.master_ip not in (default_master_ip, os.environ["MASTER_ADDR"]):
-                logger.warning(
-                    f"--master-ip={args.master_ip} while MASTER_ADDR={os.environ['MASTER_ADDR']}, "
-                    f"use --master-ip={args.master_ip} and continue..."
-                )
-                os.environ["MASTER_ADDR"] = args.master_ip
+
+        slurm_job_nodelist = os.getenv('SLURM_JOB_NODELIST')
+        if slurm_job_nodelist:
+            # Regular expression to match patterns like "eos[0113-0114]"
+            match = re.match(r"([a-zA-Z]+)\[(\d+)-?(\d+)?\]", slurm_job_nodelist)
+            if match:
+                prefix = match.group(1)  # e.g., "eos"
+                start_range = match.group(2)  # e.g., "0113"
+                # If there's a range, we only care about the start
+                comms_env_params['MASTER_ADDR'] = f"{prefix}{start_range}"
             else:
-                logger.info(
-                    "From environment variables, using MASTER_ADDR="
-                    + os.environ["MASTER_ADDR"]
-                )
-        else:
-            os.environ["MASTER_ADDR"] = args.master_ip
+                # Directly use the nodelist if it doesn't match the expected pattern
+                comms_env_params['MASTER_ADDR'] = slurm_job_nodelist
+        logger.info(slurm_job_nodelist)
 
         if "MASTER_PORT" in os.environ:
             if args.master_port not in (default_master_port, os.environ["MASTER_PORT"]):
