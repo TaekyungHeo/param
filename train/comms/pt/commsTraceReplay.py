@@ -29,12 +29,15 @@ from param_bench.train.comms.pt.comms_utils import (
 from param_bench.train.comms.pt.param_profile import paramProfile, paramTimer
 from param_bench.train.comms.pt.pytorch_backend_utils import supportedP2pOps
 
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger()
+
 try:
     from trainer_iteration_wrapper import setTrainingIteration  # @manual
 except ImportError:
     pass
-
-logger = logging.getLogger(__name__)
 
 # sleep for 20ms to wait for next collective
 LOOP_TIMER_S = 0.02
@@ -294,7 +297,6 @@ class commsTraceReplayBench(paramCommsBench):
             and not os.path.isfile(self.trace_file)
             and not os.path.isdir(self.trace_file)
         ):
-
             raise ValueError(
                 f"The specified trace path '{self.trace_file}' is neither a "
                 "file nor a directory. Please provide a valid path."
