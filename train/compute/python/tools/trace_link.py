@@ -947,6 +947,8 @@ class TraceLinker:
         for op in sorted_nodes:
             if 'parent' in op:
                 op["parent"] = self.id_assigner.assign_or_retrieve_id(op["parent"])
+            if 'ctrl_deps' in op:
+                op["ctrl_deps"] = self.id_assigner.assign_or_retrieve_id(op["ctrl_deps"])
 
         self.pytorch_et_plus_data = pytorch_et_data
         self.logger.info("ET+ data construction completed.")
@@ -1008,6 +1010,7 @@ class TraceLinker:
             new_gpu_op.update({
                 "id": new_gpu_op_id,
                 "parent": orig_op_id,
+                "ctrl_deps": orig_op_id,
                 "inputs": cpu_op["inputs"],
                 "input_shapes": cpu_op["input_shapes"],
                 "input_types": cpu_op["input_types"],
