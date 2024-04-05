@@ -3,6 +3,7 @@ import copy
 import json
 import logging
 import sys
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -15,6 +16,8 @@ from param_bench.train.compute.python.tools.utility import (
     load_execution_trace_file,
     read_dictionary_from_json_file,
 )
+from hta.analyzers.critical_path_analysis import CPEdge, CPEdgeType
+from hta.trace_analysis import TraceAnalysis
 
 # Increase the recursion limit for deep PyTorch execution traces.
 sys.setrecursionlimit(10**6)
@@ -39,6 +42,7 @@ class KinetoOperator:
         parent_pytorch_op_id (Optional[int]): ID of the parent PyTorch operator.
         inter_thread_dep (Optional[int]): ID of the latest CPU node from other
             threads before the gap.
+        sync_dep (Optional[int]): IDs of the nodes that this node depends on.
         stream (Optional[int]): Stream ID associated with the operator.
         correlation (Optional[int]): Correlation ID used to link CUDA runtime
             operations with their GPU counterparts.
@@ -65,6 +69,7 @@ class KinetoOperator:
         self.pytorch_op: Optional[PyTorchOperator] = None
         self.parent_pytorch_op_id = None
         self.inter_thread_dep: Optional[int] = None
+        self.sync_dep: Optional[List[int]] = None
         self.stream: Optional[int] = None
         self.correlation: Optional[int] = None
 
@@ -226,13 +231,19 @@ class TraceLinker:
         pytorch_op_id_to_timestamp_map (Dict[int, int]): Timestamp map for PyTorch ops.
         pytorch_op_id_to_inter_thread_dep_map (Dict[int, int]): Mapping of PyTorch
             operator IDs to IDs of latest CPU node from other threads before the gap.
+        pytorch_sync_dep_map (Dict[int, int]): Mapping of PyTorch
+            operator IDs to IDs of nodes with synchronization dependency.
+        event_sync_trace (TraceAnalysis): An instrance containing HTA.
+        cp_graph (CPGraph): Graph representation for trace from one rank.
+        raw_events (Dict[str, Any]): Raw input from kineto trace.
+        sync_dep (Dict[int, List[int]]) Sync dependency with key as end event id.
         id_assigner (UniqueIdAssigner): Assigns unique IDs to operators.
         pytorch_et_plus_data (Optional[Dict]): PyTorch ET plus data.
         logger (logging.Logger): Logger for the class.
     """
 
     def __init__(
-        self, pytorch_et_file: str, kineto_file: str, log_level: str = "INFO"
+        self, pytorch_et_file: str, kineto_file: str, rank: int, log_level: str = "INFO"
     ) -> None:
         """
         Initializes the TraceLinker with paths to the PyTorch and Kineto trace files,
@@ -245,6 +256,7 @@ class TraceLinker:
         """
         self.pytorch_et_file = pytorch_et_file
         self.kineto_file = kineto_file
+        self.rank = rank
         self.pytorch_ops: List[PyTorchOperator] = []
         self.kineto_ops: List[KinetoOperator] = []
         self.kineto_ops_by_tid: Dict[int, List[KinetoOperator]] = {}
@@ -262,6 +274,11 @@ class TraceLinker:
         self.pytorch_op_id_to_exclusive_dur_map: Dict[int, int] = {}
         self.pytorch_op_id_to_timestamp_map: Dict[int, int] = {}
         self.pytorch_op_id_to_inter_thread_dep_map: Dict[int, int] = {}
+        self.pytorch_op_id_to_sync_dep_map: Dict[int, List[int]] = {}
+        self.event_sync_trace: TraceAnalysis = None
+        self.cp_graph: CPGraph = None
+        self.raw_events: Dict[str, Any] = None
+        self.sync_deps: Dict[int, List[int]] = {}
         self.id_assigner = UniqueIdAssigner()
         self.pytorch_et_plus_data: Optional[Dict] = None
         self.logger = logging.getLogger(__name__)
@@ -275,6 +292,7 @@ class TraceLinker:
         """
         self.load_pytorch_et()
         self.load_kineto_trace()
+        self.load_critical_path_analyzer()
 
     def load_pytorch_et(self) -> None:
         """
@@ -370,6 +388,7 @@ class TraceLinker:
             elif op.is_valid("cuda_runtime") and op.name in [
                 "cudaLaunchKernel",
                 "cudaMemcpyAsync",
+                "cudaStreamSynchronize",
             ]:
                 self._add_op_to_dict(
                     op, self.kineto_cpu_launcher_ops, "args", "External id"
@@ -545,6 +564,42 @@ class TraceLinker:
 
         target_dict[value] = op
 
+    def load_critical_path_analyzer(self) -> None:
+        """
+        Loads Holistic Trace Analysis and stores synchronization dependency
+        in self.sync_deps. This makes later search on sync dep faster.
+        (HTA, https://github.com/facebookresearch/HolisticTraceAnalysis).
+        """
+        self.event_sync_trace = TraceAnalysis(
+            trace_dir=os.path.dirname(self.kineto_file)
+        )
+        annotation = "ProfilerStep"
+        instance_id = 0
+        self.cp_graph, success = self.event_sync_trace.critical_path_analysis(
+            rank=self.rank, annotation=annotation, instance_id=instance_id
+        )
+        if not success:
+            self.logger.error(f"Failed to load Critical Path Graph")
+        self.raw_events = self.event_sync_trace.t.get_raw_trace_for_one_rank(
+            rank=self.rank
+        )["traceEvents"]
+        for e in self.cp_graph.critical_path_edges_set:
+            if e.type in [CPEdgeType.SYNC_DEPENDENCY]:
+                start_ev_id, end_ev_id = self.cp_graph.get_events_for_edge(e)
+                start_ev, end_ev = (
+                    self.raw_events[start_ev_id],
+                    self.raw_events[end_ev_id],
+                )
+                if "Ev Idx" in end_ev["args"] and "Ev Idx" in start_ev["args"]:
+                    self.sync_deps.setdefault(end_ev["args"]["Ev Idx"], []).append(
+                        start_ev["args"]["Ev Idx"]
+                    )
+                else:
+                    self.logger.warning(
+                        f"Synchonization dependency starts from event = {start_ev_id} to "
+                        f"event = {end_ev_id} would not be considered for now. "
+                    )
+
     def enforce_inter_thread_order(self, threshold: int = 1000) -> None:
         """
         Enforces order between groups of operators in different threads. In
@@ -656,6 +711,49 @@ class TraceLinker:
                 f"Last CPU node before timestamp {timestamp} found: {last_cpu_node}"
             )
         return last_cpu_node_ev_idx
+
+    def enforce_sync_order(self) -> None:
+        """
+        Enforces synchronization order by storing Kineto ops that has
+        synchronization depedency with each given Kineto op.
+        """
+        self.logger.info("Enforcing sync order in Kineto traces.")
+
+        def process_thread(
+            tid: int,
+            ops: List[KinetoOperator],
+            ops_by_tid: Dict[int, List[KinetoOperator]],
+        ) -> None:
+
+            self.logger.info(f"Thread {tid}: Identifying synchronization dependency.")
+
+            for tid, ops in ops_by_tid.items():
+                for i, op in enumerate(ops):
+                    op.sync_dep = self.find_start_evs_for_end_ev(op.ev_idx)
+
+        with ThreadPoolExecutor() as executor:
+            futures = {
+                executor.submit(process_thread, tid, ops, self.kineto_ops_by_tid): tid
+                for tid, ops in self.kineto_ops_by_tid.items()
+            }
+
+            for future in as_completed(futures):
+                tid = futures[future]
+                try:
+                    future.result()
+                    self.logger.debug(f"Sync dependencies processed.")
+                except Exception as e:
+                    self.logger.error(f"Error processing thread {tid}: {e}")
+
+    def find_start_evs_for_end_ev(self, end_ev_idx: int) -> List:
+        """
+        Finds the starting events for a given ending event index (end_ev_idx).
+        This is used to determine which events need to be synchronized with a
+        particular ending event.
+        """
+        if end_ev_idx in self.sync_deps:
+            return self.sync_deps[end_ev_idx]
+        return []
 
     def link_traces(self) -> None:
         """
@@ -997,6 +1095,20 @@ class TraceLinker:
                 self.pytorch_op_id_to_inter_thread_dep_map[pytorch_op.id] = (
                     inter_thread_dep_kineto_op.pytorch_op.id
                 )
+        if kineto_op.sync_dep:
+            sync_dep_kineto_ops = []
+            for e in kineto_op.sync_dep:
+                sync_dep_kineto_op = self.kineto_ev_idx_to_kineto_op_map[e]
+                if sync_dep_kineto_op.pytorch_op:
+                    sync_dep_kineto_ops.append(sync_dep_kineto_op.pytorch_op.id)
+                    self.logger.debug(
+                        f"Added sync dependency : {pytorch_op.id} -> "
+                        f"{sync_dep_kineto_op.pytorch_op.id}"
+                    )
+                else:
+                    self.logger.warning(f"Missing sync dependency {sync_dep_kineto_op}")
+            self.pytorch_op_id_to_sync_dep_map[pytorch_op.id] = sync_dep_kineto_ops
+
         if kineto_op.ev_idx in cpu_ev_idx_to_gpu_ops_map:
             self.link_gpu_ops(pytorch_op, cpu_ev_idx_to_gpu_ops_map[kineto_op.ev_idx])
 
@@ -1067,6 +1179,14 @@ class TraceLinker:
                 )
             else:
                 op["inter_thread_dep"] = None
+
+            if orig_op_id in self.pytorch_op_id_to_sync_dep_map:
+                op["sync_dep"] = [
+                    self.id_assigner.lookup_new_id(dep)
+                    for dep in self.pytorch_op_id_to_sync_dep_map[orig_op_id]
+                ]
+            else:
+                op["sync_dep"] = []
 
         # Process and append dependent GPU operators
         if orig_op_id in self.pytorch_op_id_to_kineto_ops_map:
@@ -1172,6 +1292,9 @@ def main() -> None:
         "--kineto-file", type=str, required=True, help="Path to the Kineto trace"
     )
     parser.add_argument(
+        "--rank", type=int, required=True, help="Rank for the input Kineto trace"
+    )
+    parser.add_argument(
         "--output-file",
         type=str,
         required=True,
@@ -1183,9 +1306,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    linker = TraceLinker(args.pytorch_et_file, args.kineto_file, args.log_level)
+    linker = TraceLinker(
+        args.pytorch_et_file, args.kineto_file, args.rank, args.log_level
+    )
     linker.load_traces()
     linker.enforce_inter_thread_order()
+    linker.enforce_sync_order()
     linker.link_traces()
     linker.dump_pytorch_execution_trace_plus(args.output_file)
 
