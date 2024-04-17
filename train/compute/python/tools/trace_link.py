@@ -369,6 +369,7 @@ class TraceLinker:
                 self._add_op_to_dict(op, self.kineto_ac2g_f_ops, "id")
             elif op.is_valid("cuda_runtime") and op.name in [
                 "cudaLaunchKernel",
+                "cudaLaunchKernelExC",
                 "cudaMemcpyAsync",
             ]:
                 self._add_op_to_dict(
@@ -1034,8 +1035,8 @@ class TraceLinker:
         # Update parent-child relationships with new IDs
         sorted_nodes = sorted(pytorch_et_data["nodes"], key=lambda x: x["id"])
         for op in sorted_nodes:
-            if "parent" in op:
-                op["parent"] = self.id_assigner.assign_or_retrieve_id(op["parent"])
+            if "ctrl_deps" in op:
+                op["ctrl_deps"] = self.id_assigner.assign_or_retrieve_id(op["ctrl_deps"])
 
         self.pytorch_et_plus_data = pytorch_et_data
         self.logger.info("ET+ data construction completed.")
@@ -1097,13 +1098,9 @@ class TraceLinker:
             new_gpu_op.update(
                 {
                     "id": new_gpu_op_id,
-                    "parent": orig_op_id,
+                    "ctrl_deps": orig_op_id,
                     "inputs": cpu_op["inputs"],
-                    "input_shapes": cpu_op["input_shapes"],
-                    "input_types": cpu_op["input_types"],
                     "outputs": cpu_op["outputs"],
-                    "output_shapes": cpu_op["output_shapes"],
-                    "output_types": cpu_op["output_types"],
                     "cat": gpu_op.category,
                     "name": gpu_op.name,
                     "ph": gpu_op.phase,
