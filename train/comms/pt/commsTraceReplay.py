@@ -1544,7 +1544,7 @@ class commsTraceReplayBench(paramCommsBench):
             # Check if self.trace_file is a directory or a single file
             if os.path.isdir(self.trace_file):
                 # Directory mode: construct the path to the rank-specific file
-                trace_file_path = f"{self.trace_file}/{rank}.json"
+                trace_file_path = f"{self.trace_file}/{rank:04}.json"
             else:
                 # Single file mode: use self.trace_file as is
                 trace_file_path = self.trace_file
