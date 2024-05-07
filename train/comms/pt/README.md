@@ -12,7 +12,7 @@ The Collective-Comms benchmark (`comms.py`) is designed similar to nccl-tests
 for evaluating collective operations, such as All-reduce and All-to-all, through PyTorch backends.
 The DLRM-Comms benchmark (`dlrm.py`) is similar to the open-source DLRM benchmark except it
 only implements communication primitives.
-The Trace Replay benchmark (`commsTraceReplay.py`) is designed to replay the communication patterns captured
+The Trace Replay benchmark (`comm_replay.py`) is designed to replay the communication patterns captured
 from any distributed PyTorch workloads.
 
 ## Usage:
@@ -54,14 +54,14 @@ mpirun -np 16 -N 8 --hostfile ./hfile ./dlrm.py --master-ip $(head -n 1 ./hfile.
     --arch-embedding-size "10000-10000-10000-10000-10000-10000-10000-10000-10000-10000-10000-10000-10000-10000-10000-10000"
 ```
 
-### Trace Replay benchmark (`commsTraceReplay.py`)
+### Trace Replay benchmark (`comm_replay.py`)
 ```bash
-mpirun -np <num-processes> -N <processes per node> --hostfile <file contains host list> ./commsTraceReplay.py \
+mpirun -np <num-processes> -N <processes per node> --hostfile <file contains host list> ./comm_replay.py \
     --master-ip 127.0.0.1 --trace-path /path/to/traces --dry-run
 ```
 Example:
 ```bash
-mpirun -np 16 -N 8 --hostfile ./hfile ./commsTraceReplay.py --master-ip $(head -n 1 ./hfile.txt) \
+mpirun -np 16 -N 8 --hostfile ./hfile ./comm_replay.py --master-ip $(head -n 1 ./hfile.txt) \
     --backend nccl --device cuda \
     --trace-path /path/to/commTraces
 ```

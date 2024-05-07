@@ -82,5 +82,5 @@ Execution Trace now is fully supported in PARAM benchmark. In order to replay an
 An example command:
 
 ```
-/bin/mpirun -np 8 commsTraceReplay.par --trace-path <ET-PATH> --trace-type et
+/bin/mpirun -np 8 comm_replay.par --trace-path <ET-PATH> --trace-type et
 ```

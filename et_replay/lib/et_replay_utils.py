@@ -472,7 +472,7 @@ from datetime import datetime
 from param_bench.train.comms.pt import comms_utils
 
 import torch
-from param_bench.train.comms.pt import commsTraceReplay
+from param_bench.train.comms.pt import comm_replay
 from param_bench.et_replay.lib.et_replay_utils import (
     build_fbgemm_func,
     build_torchscript_func,
@@ -566,7 +566,7 @@ compute_only = {compute_only}
 if not compute_only:
     comms_env_params = comms_utils.read_comms_env_vars()
     global traceBench
-    traceBench = commsTraceReplay.commsTraceReplayBench()
+    traceBench = comm_replay.commsTraceReplayBench()
 
     parser = argparse.ArgumentParser(
         description="PARAM-Comms Trace Replay Mode",

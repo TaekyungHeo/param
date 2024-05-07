@@ -39,7 +39,7 @@ from param_bench.et_replay.lib.et_replay_utils import (
 from param_bench.et_replay.lib.execution_trace import ExecutionTrace, NodeType
 
 from param_bench.et_replay.lib.utils import trace_handler
-from param_bench.train.comms.pt import comms_utils, commsTraceReplay
+from param_bench.train.comms.pt import comms_utils, comm_replay
 
 from param_bench.train.compute.python.lib import pytorch as lib_pytorch
 from param_bench.train.compute.python.lib.init_helper import load_modules
@@ -1254,7 +1254,7 @@ class ExgrReplayManager:
         comms_env_params = comms_utils.read_comms_env_vars()
         print(comms_env_params, self.cuda)
 
-        self.commsBench = commsTraceReplay.commsTraceReplayBench()
+        self.commsBench = comm_replay.commsTraceReplayBench()
         self.commsBench.trace_file = self.trace_file
         if "://" in self.trace_file:
             self.commsBench.use_remote_trace = True
