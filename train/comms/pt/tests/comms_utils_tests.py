@@ -4,7 +4,7 @@ import unittest
 import torch
 
 from param_bench.train.comms.pt import comms_utils
-from param_bench.train.comms.pt.tests.mocks.backend_mock import MockBackendFunction
+from param_bench.train.comms.pt.backend.mock import MockBackendFunction
 from param_bench.train.comms.pt.tests.test_utils import (
     bootstrap_info_test,
     commsParamsTest,

@@ -1383,13 +1383,13 @@ class commsTraceReplayBench(paramCommsBench):
         """
         # init backend and corresponding function pointers
         if commsParams.nw_stack == "pytorch-dist":
-            from param_bench.train.comms.pt.pytorch_dist_backend import (
+            from param_bench.train.comms.pt.backend.pytorch_dist import (
                 PyTorchDistBackend,
             )
 
             self.backendFuncs = PyTorchDistBackend(bootstrap_info, commsParams)
         elif commsParams.nw_stack == "pytorch-xla-tpu":
-            from param_bench.train.comms.pt.pytorch_tpu_backend import PyTorchTPUBackend
+            from param_bench.train.comms.pt.backend.pytorch_tpu import PyTorchTPUBackend
 
             self.backendFuncs = PyTorchTPUBackend(bootstrap_info, commsParams)
         else:

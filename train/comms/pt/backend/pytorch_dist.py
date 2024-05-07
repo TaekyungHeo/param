@@ -973,7 +973,7 @@ class PyTorchDistBackend(backendFunctions):
         self.use_ext_dist = commsParams.use_ext_dist
         self.bootstrap_info = bootstrap_info
         self.commsParams = commsParams
-        # extra ops supported (Note these are not supported in pytorch_tpu_backend.py)
+        # extra ops supported (Note these are not supported in pytorch_tpu.py)
         self.collectiveFunc["wait"] = (
             self.wait
         )  # a noop until all collective operations can post a wait operation or specify async vs not async
