@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 import torch
 
-from param_bench.train.comms.pt.param_profile import paramTimer
+from param.param_profile import ParamTimer
 
 from torch.distributed import ProcessGroup
 
@@ -118,8 +118,8 @@ class collectiveArgsHolder:
         self.allreduce_qcomm = 32  # TODO: set it as the bitwidth for now until the quantization kernels be supported
         self.reduce_qcomm = 32
         self.quant_threshold = 0
-        self.quant_time = paramTimer()
-        self.dequant_time = paramTimer()
+        self.quant_time = ParamTimer()
+        self.dequant_time = ParamTimer()
         self.enable_profiler = False
 
         self.compute_stream = None
