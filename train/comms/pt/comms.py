@@ -1770,23 +1770,10 @@ class commsCollBench(paramCommsBench):
 
             backendObj = PyTorchTPUBackend(bootstrap_info, commsParams)
         else:
-            # check for customized backend
-            try:
-                logging.warning(
-                    f"Attempt loading customized backend {commsParams.backend} if registered. Note that this is not officially supported. Use it with caution and at your own risk."
-                )
-                from param_bench.train.comms.pt.pytorch_backend_utils import (
-                    customized_backend,
-                )
-
-                backendObj = customized_backend[commsParams.backend](
-                    bootstrap_info, commsParams
-                )
-            except KeyError as e:
-                logger.error(
-                    f"Unsupported NW stack for backend {commsParams.backend}: {e}"
-                )
-                comms_utils.gracefulExit()
+            logger.error(
+                f"Unsupported NW stack for backend {commsParams.backend}: {e}"
+            )
+            comms_utils.gracefulExit()
 
         self.backendFuncs = backendObj
         sig = signature(self.backendFuncs.initialize_backend)
