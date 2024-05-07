@@ -1584,12 +1584,12 @@ class commsTraceReplayBench(paramCommsBench):
 
         # Convert trace to comms trace.
         try:
-            from param_bench.train.comms.pt import commsTraceParser
+            from param_bench.train.comms.pt import chakra_trace_parser
         except ImportError:
             logger.info("FB internals not present, using base parser.")
             self.comms_trace = extractCommsInfo(self.comms_trace)
         else:
-            self.comms_trace = commsTraceParser.parseTrace(
+            self.comms_trace = chakra_trace_parser.parseTrace(
                 self.comms_trace,
                 self.trace_type,
                 rank,
