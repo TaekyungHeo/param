@@ -1017,6 +1017,36 @@ class commsTraceReplayBench(paramCommsBench):
         for cnt, curComm in enumerate(self.comms_trace[: self.max_msg_cnt]):
             self.replaySingle(commsParams, curComm, cnt, warmup)
 
+    def calculate_alg_bw(self, msg_size, latency):
+        if msg_size is not None and latency > 0:
+            alg_bw = (msg_size / (1024 ** 3)) / (latency / 1e6)
+        else:
+            alg_bw = None
+        return alg_bw
+
+    def calculate_bus_bw(self, alg_bw, coll_name, world_size):
+        if alg_bw is None:
+            return None
+
+        correction_factor = {
+            "all_to_all": (world_size - 1) / world_size,
+            "all_to_allv": (world_size - 1) / world_size,
+            "all_to_all_single": (world_size - 1) / world_size,
+            "all_reduce": 2 * (world_size - 1) / world_size,
+            "all_gather": (world_size - 1) / world_size,
+            "all_gather_base": (world_size - 1) / world_size,
+            "reduce_scatter": (world_size - 1) / world_size,
+            "reduce_scatter_base": (world_size - 1) / world_size,
+            "recv": 1,
+            "broadcast": 1,
+            "reduce": 1,
+        }.get(coll_name, None)
+
+        if correction_factor is None:
+            raise ValueError(f"Unsupported collective operation: {coll_name}")
+
+        return alg_bw * correction_factor
+
     def replaySingle(
         self,
         commsParams: commsParamsHolderBase,
@@ -1102,6 +1132,14 @@ class commsTraceReplayBench(paramCommsBench):
 
             # send comm request to pytorch backend
             (latency, global_latency) = self.runComms(collName, curComm, curBlockStack)
+
+            if self.report:
+                alg_bw = self.calculate_alg_bw(curComm.inMsgSize, global_latency)
+                bus_bw = self.calculate_bus_bw(alg_bw, collName, self.backendFuncs.get_world_size())
+                if bus_bw is not None:
+                    print(f"{collName}: algbw={alg_bw:.2f}GB/s, busbw={bus_bw:.2f}GB/s")
+                else:
+                    print(f"{collName}: algbw=None, busbw=None")
 
             # perform data validation check on the final opTensor
             if (
