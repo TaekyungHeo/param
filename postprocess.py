@@ -40,30 +40,61 @@ correction_factors: Dict[str, Any] = {
 }
 
 
-def get_in_msg_size(event: Dict[str, Any]) -> int:
+def calculate_algbw(event: Dict[str, Any], coll_name: str, group_size: int) -> float:
+    total_size = calculate_s(event, coll_name, group_size)
+    duration_seconds = event.get("dur", 0) / 1e6
+    if duration_seconds <= 0:
+        raise ValueError(f"Invalid or missing duration in event: {event}")
+    return round((total_size / duration_seconds) / 1e9, 2)
+
+
+def get_in_msg_nelems(event: Dict[str, Any]) -> int:
     args = event.get("args", {})
     in_msg_nelems = args.get("In msg nelems")
+    if in_msg_nelems is None:
+        raise ValueError(f"Missing 'In msg nelems' in event: {event}")
+    return in_msg_nelems
+
+def get_out_msg_nelems(event: Dict[str, Any]) -> int:
+    args = event.get("args", {})
+    out_msg_nelems = args.get("Out msg nelems")
+    if out_msg_nelems is None:
+        raise ValueError(f"Missing 'Out msg nelems' in event: {event}")
+    return out_msg_nelems
+
+def calculate_s(event: Dict[str, Any], coll_name: str, num_ranks: int) -> int:
+    args = event.get("args", {})
     dtype = args.get("dtype")
     if dtype not in dtype_size_map:
         raise ValueError(f"Missing or unsupported dtype in event: {event}")
     element_size = dtype_size_map[dtype]
-    if in_msg_nelems is None:
-        raise ValueError(f"Missing 'In msg nelems' in event: {event}")
-    return in_msg_nelems * element_size
+
+    if coll_name == "all_reduce" or coll_name == "reduce_scatter":
+        return get_in_msg_nelems(event) * element_size * num_ranks
+
+    elif coll_name == "all_to_all":
+        in_msg_nelems = get_in_msg_nelems(event)
+        out_msg_nelems = get_out_msg_nelems(event)
+        if in_msg_nelems != out_msg_nelems:
+            raise ValueError(
+                f"Mismatch between 'In msg nelems' ({in_msg_nelems}) and 'Out msg nelems' ({out_msg_nelems}) for AlltoAll"
+            )
+        return in_msg_nelems * element_size * num_ranks
+
+    elif coll_name == "all_gather":
+        return get_out_msg_nelems(event) * element_size * num_ranks
+
+    elif coll_name == "broadcast":
+        return get_out_msg_nelems(event) * element_size
+
+    elif coll_name == "reduce":
+        return get_in_msg_nelems(event) * element_size
+
+    else:
+        raise ValueError(f"Unsupported or unknown collective operation: {coll_name}")
 
 
-def calculate_algbw(event: Dict[str, Any]) -> float:
-    total_bytes = get_in_msg_size(event)
-    duration_seconds = event.get("dur", 0) / 1e6
-    if duration_seconds <= 0:
-        raise ValueError(f"Invalid or missing duration in event: {event}")
-    return round((total_bytes / duration_seconds) / 1e9, 2)
-
-
-def calculate_bus_bw(algbw: float, coll_name: str, world_size: int) -> float:
-    standardized_name = name_standardization_map.get(coll_name)
-    if standardized_name is None:
-        raise ValueError(f"Unsupported collective operation nickname: {coll_name}")
+def calculate_bus_bw(algbw: float, standardized_name: str, world_size: int) -> float:
     correction_factor_func = correction_factors.get(standardized_name)
     if correction_factor_func is None:
         raise ValueError(f"Unsupported collective operation: {standardized_name}")
@@ -85,29 +116,19 @@ def process_trace(
     for event in trace.get("traceEvents", []):
         if event.get("name", "").startswith("ncclDevKernel"):
             try:
-                algbw = calculate_algbw(event)
                 coll_name = event["args"].get("Collective name")
                 if not coll_name:
                     raise ValueError(f"Missing 'Collective name' in event: {event}")
+                standardized_name = name_standardization_map.get(coll_name)
 
-                process_group_ranks_str = event["args"].get("Process Group Ranks")
-                if not process_group_ranks_str:
-                    raise ValueError(f"Missing 'Process Group Ranks' in event: {event}")
+                group_size = event["args"].get("Group size")
+                if group_size is None or group_size <= 0:
+                    raise ValueError(f"Invalid or missing 'Group size' in event: {event}")
 
-                try:
-                    process_group_ranks = json.loads(process_group_ranks_str)
-                except json.JSONDecodeError:
-                    raise ValueError(f"Malformed 'Process Group Ranks': {process_group_ranks_str}")
-
-                num_ranks = len(process_group_ranks)
-                if num_ranks <= 0:
-                    raise ValueError(f"Invalid 'Process Group Ranks': {process_group_ranks_str}")
-
-                busbw = calculate_bus_bw(algbw, coll_name, num_ranks)
+                algbw = calculate_algbw(event, standardized_name, group_size)
+                busbw = calculate_bus_bw(algbw, standardized_name, group_size)
                 event["args"]["algbw (GB/sec)"] = algbw
                 event["args"]["busbw (GB/sec)"] = busbw
-                standardized_name = name_standardization_map.get(coll_name)
-                msg_size = get_in_msg_size(event)
                 filtered_events.append(event)
                 logger.debug("Processed event: %s", event)
             except ValueError as e:
