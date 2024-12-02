@@ -71,7 +71,7 @@ def calculate_bus_bw(algbw: float, coll_name: str, world_size: int) -> float:
     return round(algbw * correction_factor, 2)
 
 
-def process_trace_with_nccl_results(
+def process_trace(
     trace: Dict[str, Any], logger: logging.Logger
 ) -> Dict[str, Any]:
     filtered_events = []
@@ -125,7 +125,7 @@ def main() -> None:
         with open(args.trace_file, "r") as f:
             trace_data = json.load(f)
         logger.info("Loaded trace file: %s", args.trace_file)
-        processed_trace = process_trace_with_nccl_results(trace_data, logger)
+        processed_trace = process_trace(trace_data, logger)
         with open(args.output_file, "w") as f:
             json.dump(processed_trace, f, indent=2)
         logger.info("Processed trace saved to: %s", args.output_file)
