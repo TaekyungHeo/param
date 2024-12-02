@@ -94,10 +94,10 @@ def calculate_s(event: Dict[str, Any], coll_name: str, num_ranks: int) -> int:
         raise ValueError(f"Unsupported or unknown collective operation: {coll_name}")
 
 
-def calculate_bus_bw(algbw: float, standardized_name: str, world_size: int) -> float:
-    correction_factor_func = correction_factors.get(standardized_name)
+def calculate_bus_bw(algbw: float, standard_coll_name: str, world_size: int) -> float:
+    correction_factor_func = correction_factors.get(standard_coll_name)
     if correction_factor_func is None:
-        raise ValueError(f"Unsupported collective operation: {standardized_name}")
+        raise ValueError(f"Unsupported collective operation: {standard_coll_name}")
     correction_factor = correction_factor_func(world_size)
     return round(algbw * correction_factor, 2)
 
@@ -112,14 +112,14 @@ def process_trace(
                 coll_name = event["args"].get("Collective name")
                 if not coll_name:
                     raise ValueError(f"Missing 'Collective name' in event: {event}")
-                standardized_name = name_standardization_map.get(coll_name)
+                standard_coll_name = name_standardization_map.get(coll_name)
 
                 group_size = event["args"].get("Group size")
                 if group_size is None or group_size <= 0:
                     raise ValueError(f"Invalid or missing 'Group size' in event: {event}")
 
-                algbw = calculate_algbw(event, standardized_name, group_size)
-                busbw = calculate_bus_bw(algbw, standardized_name, group_size)
+                algbw = calculate_algbw(event, standard_coll_name, group_size)
+                busbw = calculate_bus_bw(algbw, standard_coll_name, group_size)
                 event["args"]["algbw (GB/sec)"] = algbw
                 event["args"]["busbw (GB/sec)"] = busbw
                 filtered_events.append(event)
