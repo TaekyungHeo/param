@@ -106,13 +106,6 @@ def process_trace(
     trace: Dict[str, Any], logger: logging.Logger
 ) -> Dict[str, Any]:
     filtered_events = []
-    world_size = trace.get("distributedInfo", {}).get("world_size")
-    if world_size is None:
-        raise ValueError("Missing 'world_size' in 'distributedInfo'")
-    logger.info("Processing trace with world_size=%d", world_size)
-
-    per_collective_perf: DefaultDict[str, List[float]] = defaultdict(list)
-
     for event in trace.get("traceEvents", []):
         if event.get("name", "").startswith("ncclDevKernel"):
             try:
