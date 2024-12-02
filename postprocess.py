@@ -89,7 +89,21 @@ def process_trace(
                 coll_name = event["args"].get("Collective name")
                 if not coll_name:
                     raise ValueError(f"Missing 'Collective name' in event: {event}")
-                busbw = calculate_bus_bw(algbw, coll_name, world_size)
+
+                process_group_ranks_str = event["args"].get("Process Group Ranks")
+                if not process_group_ranks_str:
+                    raise ValueError(f"Missing 'Process Group Ranks' in event: {event}")
+
+                try:
+                    process_group_ranks = json.loads(process_group_ranks_str)
+                except json.JSONDecodeError:
+                    raise ValueError(f"Malformed 'Process Group Ranks': {process_group_ranks_str}")
+
+                num_ranks = len(process_group_ranks)
+                if num_ranks <= 0:
+                    raise ValueError(f"Invalid 'Process Group Ranks': {process_group_ranks_str}")
+
+                busbw = calculate_bus_bw(algbw, coll_name, num_ranks)
                 event["args"]["algbw (GB/sec)"] = algbw
                 event["args"]["busbw (GB/sec)"] = busbw
                 standardized_name = name_standardization_map.get(coll_name)
