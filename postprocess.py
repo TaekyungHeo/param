@@ -83,10 +83,10 @@ def calculate_s(event: Dict[str, Any], coll_name: str, num_ranks: int) -> int:
         return in_msg_nelems * element_size * num_ranks
 
     elif coll_name == "all_gather":
-        return get_out_msg_nelems(event) * element_size * num_ranks
+        return get_in_msg_nelems(event) * element_size * num_ranks
 
     elif coll_name == "broadcast":
-        return get_out_msg_nelems(event) * element_size
+        return get_in_msg_nelems(event) * element_size
 
     elif coll_name == "reduce":
         return get_in_msg_nelems(event) * element_size
