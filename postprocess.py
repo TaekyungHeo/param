@@ -5,6 +5,7 @@ from typing import Dict, Any, List, DefaultDict
 from collections import defaultdict
 
 dtype_size_map: Dict[str, int] = {
+    "BFloat16": 2,
     "Long": 8,
     "Float": 4,
     "Double": 8,
