@@ -77,7 +77,7 @@ def writeCommDetails(commsTracePerf: list, rank: int, folder: str = "./") -> Non
             pathlib.Path(folder).mkdir(parents=True, exist_ok=True)
         except PermissionError:
             logger.error(f'Permission denied to create directory {folder}')
-        
+
         with open(comms_file, "w") as write_file:
             json.dump(commsTracePerf, write_file, indent=2)
 
@@ -314,7 +314,7 @@ class commsTraceReplayBench(paramCommsBench):
             )
 
         if (
-            args.output_ranks is not None 
+            args.output_ranks is not None
             and len(args.output_ranks) > 0
             and not len(args.output_path)
         ):
@@ -1275,7 +1275,7 @@ class commsTraceReplayBench(paramCommsBench):
 
                 if self.collectiveArgs.enable_profiler and fb_internal.has_fb_internal_libs:
                     fb_internal.fbSampleProfiler()
-                
+
                 # replay comms trace
                 self.replayIter = i
                 self.replayTrace(commsParams=commsParams, warmup=False)
@@ -1286,7 +1286,7 @@ class commsTraceReplayBench(paramCommsBench):
                     description=f"# PARAM replay {self.replayIter} post-replay global sync"
                 ):
                     self.backendFuncs.sync_barrier(self.collectiveArgs)
-                
+
                 prof.step()
 
         # record how long it took for trace-replay to complete
@@ -1362,8 +1362,9 @@ class commsTraceReplayBench(paramCommsBench):
             # TODO: collect perf. from all ranks to rank 0 and detect any imbalanced perf?
 
             if commsParams.enable_profiler and not fb_internal.has_fb_internal_libs and self.backendFuncs.get_global_rank() == 0:
+                print("ANALYZE PROFILER_TRACE")
                 profiler_trace_analysis.analyze_profiler_trace(os.path.join(self.out_path, 'profiler_trace'), self.out_path)
-            
+
             self.backendFuncs.barrier_all_ranks()
 
     def replayInit(
