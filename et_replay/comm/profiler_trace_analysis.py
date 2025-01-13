@@ -272,3 +272,6 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
             for val in v[2:]:
                 f.write(f'{val:>8.2f}|')
             f.write('\n')
+
+
+analyze_profiler_trace("/lustre/fsw/general_infra-rd_gsw/theo/logs/profiler_trace", ".")
