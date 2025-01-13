@@ -7,6 +7,7 @@ from collections import defaultdict
 import ast
 import numpy as np
 from intervaltree import Interval, IntervalTree
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
