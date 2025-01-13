@@ -167,6 +167,7 @@ def pick_comm_bw_(trace_data, comm_bw_data):
         ranks_count = evt['args']['Group size']
 
         ranks = ast.literal_eval(evt['args']['Process Group Ranks'])
+        ranks = [r for r in ranks if r is not Ellipsis]
         pg_id = int(evt['args']['Process Group Name'])
         pg = tuple([*ranks, pg_id]) if rank == min(ranks) else None
 
@@ -183,7 +184,6 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
         report_dir (str): dir path for generated reports
     '''
     logger.info(f'Parse profiler trace from "{trace_dir}" and generate reports to "{report_dir}"')
-    print("186")
 
     processed_trace_dir = os.path.join(report_dir, 'profiler_trace_processed')
     pathlib.Path(processed_trace_dir).mkdir(parents=True, exist_ok=True)
@@ -214,8 +214,6 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
         pick_iter_e2e_time_(trace, iter_e2e_time)
         pick_comm_bw_(trace, comm_bw_data)
 
-    print("215")
-
     comm_bw_summary = {}
     for k,v in comm_bw_data.items():
         t_lst     = [i[0] for i in v]
@@ -229,8 +227,6 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
                               np.percentile(busbw_lst, 90),
                               np.percentile(busbw_lst, 99)]
     comm_bw_summary = dict(sorted(comm_bw_summary.items()))
-
-    print("233")
 
     # dump summary report
     with open(os.path.join(report_dir, 'profiler_trace_summary_report.txt'), 'w', encoding='utf-8') as f:
@@ -254,3 +250,4 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
             for i in range(2, len(v)):
                 f.write(f'{v[i]:>8.2f}|')
             f.write('\n')
+
