@@ -198,24 +198,37 @@ def process_trace_file(fpath: str):
         "trace_name": os.path.basename(fpath),
     }
 
-def analyze_profiler_trace(trace_dir: str, report_dir: str):
-    """Analyse input PyTorch profiler trace and generate report."""
-    logger.info(f'Parse profiler trace from "{trace_dir}" and generate reports to "{report_dir}"')
 
+
+def analyze_profiler_trace(trace_dir: str, report_dir: str):
+    """
+    Analyze input PyTorch profiler trace and generate report.
+
+    Args:
+        trace_dir (str): Directory path of input traces, where trace name should be in "rank-n.json" format.
+        report_dir (str): Directory path for generated reports.
+    """
+    logger.info(f'Starting analysis of profiler traces in "{trace_dir}"')
     processed_trace_dir = os.path.join(report_dir, 'profiler_trace_processed')
     pathlib.Path(processed_trace_dir).mkdir(parents=True, exist_ok=True)
+    logger.info(f'Processed trace files will be saved in "{processed_trace_dir}"')
 
     iter_e2e_time = []
     sbw_lst = []
     comm_bw_data = defaultdict(list)
 
     trace_files = [f.path for f in os.scandir(trace_dir) if f.is_file()]
+    logger.info(f'Found {len(trace_files)} trace files to process.')
 
-    # Use multiprocessing to process trace files in parallel
+    if not trace_files:
+        logger.warning(f'No trace files found in "{trace_dir}". Exiting analysis.')
+        return
+
+    logger.info('Starting parallel processing of trace files...')
     with ProcessPoolExecutor() as executor:
         future_to_file = {executor.submit(process_trace_file, f): f for f in trace_files}
 
-        for future in as_completed(future_to_file):
+        for idx, future in enumerate(as_completed(future_to_file), start=1):
             try:
                 result = future.result()
                 sbw_lst.append(result["sbw"])
@@ -230,10 +243,14 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
                 with open(processed_file_path, 'w', encoding='utf-8') as f:
                     json.dump(result["processed_trace"], f)
 
+                logger.info(f'[{idx}/{len(future_to_file)}] Successfully processed file: {result["trace_name"]}')
             except Exception as e:
                 logger.error(f'Error processing file {future_to_file[future]}: {e}')
 
+    logger.info('Finished parallel processing of trace files.')
+
     # Prepare the summary
+    logger.info('Combining results and generating summary...')
     comm_bw_summary = {}
     for k, v in comm_bw_data.items():
         t_lst = [i[0] for i in v]
@@ -252,6 +269,7 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
 
     # Write the summary report
     summary_file_path = os.path.join(report_dir, 'profiler_trace_summary_report.txt')
+    logger.info(f'Writing summary report to "{summary_file_path}"...')
     with open(summary_file_path, 'w', encoding='utf-8') as f:
         f.write(f'avg. E2ETime of iters among all ranks: {sum(iter_e2e_time) / len(iter_e2e_time) / 1e3 :.3f} ms\n')
         f.write(f'avg. SharedBW among all ranks: {sum(sbw_lst) / len(sbw_lst) :.3f} GB/s\n')
@@ -274,5 +292,7 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
                 f.write(f'{val:>8.2f}|')
             f.write('\n')
 
+    logger.info('Summary report generation completed.')
+    logger.info('Profiler trace analysis finished successfully.')
 
 analyze_profiler_trace("/lustre/fsw/general_infra-rd_gsw/theo/logs/profiler_trace", ".")
