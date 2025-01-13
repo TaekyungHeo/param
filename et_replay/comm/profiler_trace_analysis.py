@@ -175,79 +175,100 @@ def pick_comm_bw_(trace_data, comm_bw_data):
             [evt['dur'], evt['args']['algbw (GB/sec)'], evt['args']['busbw (GB/sec)'], pg]
         )
 
-def analyze_profiler_trace(trace_dir: str, report_dir: str):
-    '''
-    Analyse input PyTorch profiler trace (i.e. Kineto trace) and generate report.
+def process_trace_file(fpath: str):
+    """Processes a single trace file."""
+    with open(fpath, 'r', encoding='utf-8') as f:
+        trace = json.load(f)
 
-    Args:
-        trace_dir (str): dir path of input traces, where trace name should be in "rank-n.json" format.
-        report_dir (str): dir path for generated reports
-    '''
+    calculate_bw_(trace)
+    sbw = calculate_sbw(trace)
+
+    iter_e2e_time = []
+    pick_iter_e2e_time_(trace, iter_e2e_time)
+
+    comm_bw_data = defaultdict(list)
+    pick_comm_bw_(trace, comm_bw_data)
+
+    return {
+        "sbw": sbw,
+        "iter_e2e_time": iter_e2e_time,
+        "comm_bw_data": comm_bw_data,
+        "processed_trace": trace,
+        "trace_name": os.path.basename(fpath),
+    }
+
+def analyze_profiler_trace(trace_dir: str, report_dir: str):
+    """Analyse input PyTorch profiler trace and generate report."""
     logger.info(f'Parse profiler trace from "{trace_dir}" and generate reports to "{report_dir}"')
 
     processed_trace_dir = os.path.join(report_dir, 'profiler_trace_processed')
     pathlib.Path(processed_trace_dir).mkdir(parents=True, exist_ok=True)
 
-    # list of iteration time in all ranks
     iter_e2e_time = []
-
-    # list of shared bw
     sbw_lst = []
-
-    # key is (kernel_name, data size, ranks number)
-    # value is list of [dur, algbw, busbw, pg]
     comm_bw_data = defaultdict(list)
 
-    for fpath in os.scandir(trace_dir):
-        if not fpath.is_file():
-            continue
+    trace_files = [f.path for f in os.scandir(trace_dir) if f.is_file()]
 
-        with open(fpath.path, 'r', encoding='utf-8') as f:
-            trace = json.load(f)
+    # Use multiprocessing to process trace files in parallel
+    with ProcessPoolExecutor() as executor:
+        future_to_file = {executor.submit(process_trace_file, f): f for f in trace_files}
 
-        calculate_bw_(trace)
-        with open(os.path.join(processed_trace_dir, fpath.name), 'w', encoding='utf-8') as f:
-            json.dump(trace, f)
+        for future in as_completed(future_to_file):
+            try:
+                result = future.result()
+                sbw_lst.append(result["sbw"])
+                iter_e2e_time.extend(result["iter_e2e_time"])
 
-        sbw_lst.append(calculate_sbw(trace))
+                # Combine comm_bw_data from all processes
+                for k, v in result["comm_bw_data"].items():
+                    comm_bw_data[k].extend(v)
 
-        pick_iter_e2e_time_(trace, iter_e2e_time)
-        pick_comm_bw_(trace, comm_bw_data)
+                # Save the processed trace
+                processed_file_path = os.path.join(processed_trace_dir, result["trace_name"])
+                with open(processed_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(result["processed_trace"], f)
 
+            except Exception as e:
+                logger.error(f'Error processing file {future_to_file[future]}: {e}')
+
+    # Prepare the summary
     comm_bw_summary = {}
-    for k,v in comm_bw_data.items():
-        t_lst     = [i[0] for i in v]
+    for k, v in comm_bw_data.items():
+        t_lst = [i[0] for i in v]
         busbw_lst = [i[2] for i in v]
-        pg_set    = set([i[3] for i in v if i[3]])
-        comm_bw_summary[k] = [len(pg_set),
-                              np.average(t_lst),
-                              np.average(busbw_lst),
-                              np.percentile(busbw_lst,  1),
-                              np.percentile(busbw_lst, 50),
-                              np.percentile(busbw_lst, 90),
-                              np.percentile(busbw_lst, 99)]
+        pg_set = set([i[3] for i in v if i[3]])
+        comm_bw_summary[k] = [
+            len(pg_set),
+            np.average(t_lst),
+            np.average(busbw_lst),
+            np.percentile(busbw_lst, 1),
+            np.percentile(busbw_lst, 50),
+            np.percentile(busbw_lst, 90),
+            np.percentile(busbw_lst, 99),
+        ]
     comm_bw_summary = dict(sorted(comm_bw_summary.items()))
 
-    # dump summary report
-    with open(os.path.join(report_dir, 'profiler_trace_summary_report.txt'), 'w', encoding='utf-8') as f:
+    # Write the summary report
+    summary_file_path = os.path.join(report_dir, 'profiler_trace_summary_report.txt')
+    with open(summary_file_path, 'w', encoding='utf-8') as f:
         f.write(f'avg. E2ETime of iters among all ranks: {sum(iter_e2e_time) / len(iter_e2e_time) / 1e3 :.3f} ms\n')
-        f.write(f'avg. SharedBW (i.e. sum(data_size * busbw_factor) / GPU_comm_busy_time  per rank) among all ranks: {sum(sbw_lst) / len(sbw_lst) :.3f} GB/s\n')
+        f.write(f'avg. SharedBW among all ranks: {sum(sbw_lst) / len(sbw_lst) :.3f} GB/s\n')
 
         f.write(f'\n{" ":>70s}|{" ":>5s}|{"AVG.":^19s}|{"p01":^8s}|{"p50":^8s}|{"p90":^8s}|{"p99":^8s}|\n')
 
         f.write(f'{"kernel":>50s} {"size":>12s} {"#rks":>6s}|{"#pgs":>5s}|{"  dur":>10s} ')
-        for i in range(5): # average, p01, p50, p90, p99
+        for _ in range(5):
             f.write(f'{" busbw":>8s}|')
         f.write('\n')
 
         f.write(f'{"      ":>50s} {" (B)":>12s} {"    ":>6s}|{"    ":>5s}|{" (ms)":>10s} ')
-        for i in range(5): # average, p50, p90, p99
+        for _ in range(5):
             f.write(f'{"(GB/s)":>8s}|')
         f.write('\n')
 
-        for k,v in comm_bw_summary.items():
+        for k, v in comm_bw_summary.items():
             f.write(f'{k[0]:>50s} {k[1]:>12d} {k[2]:>6d}|{v[0]:>5d}|{v[1]/1e3:>10.3f} ')
-            for i in range(2, len(v)):
-                f.write(f'{v[i]:>8.2f}|')
+            for val in v[2:]:
+                f.write(f'{val:>8.2f}|')
             f.write('\n')
-
