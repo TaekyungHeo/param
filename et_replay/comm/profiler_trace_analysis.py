@@ -294,5 +294,3 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
 
     logger.info('Summary report generation completed.')
     logger.info('Profiler trace analysis finished successfully.')
-
-analyze_profiler_trace("/lustre/fsw/general_infra-rd_gsw/theo/logs/profiler_trace", ".")
