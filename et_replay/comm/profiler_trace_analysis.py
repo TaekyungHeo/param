@@ -199,7 +199,6 @@ def process_trace_file(fpath: str):
     }
 
 
-
 def analyze_profiler_trace(trace_dir: str, report_dir: str):
     """
     Analyze input PyTorch profiler trace and generate report.
@@ -224,30 +223,27 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
         logger.warning(f'No trace files found in "{trace_dir}". Exiting analysis.')
         return
 
-    logger.info('Starting parallel processing of trace files...')
-    with ProcessPoolExecutor() as executor:
-        future_to_file = {executor.submit(process_trace_file, f): f for f in trace_files}
+    logger.info('Starting sequential processing of trace files...')
+    for idx, trace_file in enumerate(trace_files, start=1):
+        try:
+            result = process_trace_file(trace_file)
+            sbw_lst.append(result["sbw"])
+            iter_e2e_time.extend(result["iter_e2e_time"])
 
-        for idx, future in enumerate(as_completed(future_to_file), start=1):
-            try:
-                result = future.result()
-                sbw_lst.append(result["sbw"])
-                iter_e2e_time.extend(result["iter_e2e_time"])
+            # Combine comm_bw_data from all processes
+            for k, v in result["comm_bw_data"].items():
+                comm_bw_data[k].extend(v)
 
-                # Combine comm_bw_data from all processes
-                for k, v in result["comm_bw_data"].items():
-                    comm_bw_data[k].extend(v)
+            # Save the processed trace
+            processed_file_path = os.path.join(processed_trace_dir, result["trace_name"])
+            with open(processed_file_path, 'w', encoding='utf-8') as f:
+                json.dump(result["processed_trace"], f)
 
-                # Save the processed trace
-                processed_file_path = os.path.join(processed_trace_dir, result["trace_name"])
-                with open(processed_file_path, 'w', encoding='utf-8') as f:
-                    json.dump(result["processed_trace"], f)
+            logger.info(f'[{idx}/{len(trace_files)}] Successfully processed file: {result["trace_name"]}')
+        except Exception as e:
+            logger.error(f'Error processing file {trace_file}: {e}')
 
-                logger.info(f'[{idx}/{len(future_to_file)}] Successfully processed file: {result["trace_name"]}')
-            except Exception as e:
-                logger.error(f'Error processing file {future_to_file[future]}: {e}')
-
-    logger.info('Finished parallel processing of trace files.')
+    logger.info('Finished sequential processing of trace files.')
 
     # Prepare the summary
     logger.info('Combining results and generating summary...')
