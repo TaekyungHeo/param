@@ -88,8 +88,8 @@ def _parse_ranks(ranks_str: str, ranks_count: int):
         # https://github.com/pytorch/pytorch/blob/main/torch/csrc/autograd/profiler_kineto.cpp#L508
         # the first param of the struct `SaveNcclMetaConfig` controls the truncation
         # if ranks string is too long, it will be truncated in kineto trace.
-        # (e.g., "[64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 
-        # 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, ...]"), 
+        # (e.g., "[64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76,
+        # 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, ...]"),
         stride = ranks[1] - ranks[0]
         ranks = [ranks[0] + i * stride for i in range(ranks_count)]
     return ranks
@@ -109,16 +109,16 @@ def _calculate_algbw(evt: Dict[str, Any]) -> float:
 
 def _get_event_busbw_factor(evt):
     coll_name = _get_dict_value(evt['args'], 'Collective name', f'Missing "Collective name" in event: {evt}')
-    
-    # barrier is implemented using AllReduce            
+
+    # barrier is implemented using AllReduce
     if coll_name in ['barrier', ]:
         return 0
-    
+
     group_size = _get_dict_value(evt['args'], 'Group size', f'Missing "Group size" in event: {evt}')
     correction_factor_func = _get_dict_value(_collname_to_busbw_corr_factor_func,
-                                             coll_name, 
+                                             coll_name,
                                              f'Unsupported collective op for busbw calculation: {coll_name}')
-    
+
     return correction_factor_func(group_size)
 
 def calculate_bw_(trace_data):
@@ -127,10 +127,10 @@ def calculate_bw_(trace_data):
         try:
             coll_name = _get_dict_value(evt['args'], 'Collective name', f'Missing "Collective name" in event: {evt}')
 
-            # barrier is implemented using AllReduce            
+            # barrier is implemented using AllReduce
             if coll_name in ['barrier', ]:
                 continue
-            
+
             algbw = _calculate_algbw(evt)
             busbw_factor = _get_event_busbw_factor(evt)
             busbw = round(algbw * busbw_factor, 2)
@@ -146,10 +146,10 @@ def calculate_sbw(trace_data):
     nccl_events = [i for i in trace_data['traceEvents'] if i.get('cat', '') == 'kernel' \
                    and i['name'].startswith('ncclDevKernel_') \
                    and 'busbw_factor' in i['args']]
-    
+
     if not len(nccl_events):
         return 0
-    
+
     total_data_size = sum([_calculate_event_data_size(evt) * _get_event_busbw_factor(evt) for evt in nccl_events])
 
     time_range_tree = IntervalTree([Interval(evt['ts'], evt['ts'] + evt['dur']) for evt in nccl_events])
@@ -192,7 +192,7 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
 
     Args:
         trace_dir (str): dir path of input traces, where trace name should be in "rank-n.json" format.
-        report_dir (str): dir path for generated reports 
+        report_dir (str): dir path for generated reports
     '''
     logger.info(f'Parse profiler trace from "{trace_dir}" and generate reports to "{report_dir}"')
 
@@ -219,19 +219,19 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
         calculate_bw_(trace)
         with open(os.path.join(processed_trace_dir, fpath.name), 'w', encoding='utf-8') as f:
             json.dump(trace, f)
-        
+
         sbw_lst.append(calculate_sbw(trace))
 
         pick_iter_e2e_time_(trace, iter_e2e_time)
         pick_comm_bw_(trace, comm_bw_data)
-    
+
     comm_bw_summary = {}
     for k,v in comm_bw_data.items():
         t_lst     = [i[0] for i in v]
         busbw_lst = [i[2] for i in v]
         pg_set    = set([i[3] for i in v if i[3]])
         comm_bw_summary[k] = [len(pg_set),
-                              np.average(t_lst), 
+                              np.average(t_lst),
                               np.average(busbw_lst),
                               np.percentile(busbw_lst,  1),
                               np.percentile(busbw_lst, 50),
@@ -243,7 +243,7 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
     with open(os.path.join(report_dir, 'profiler_trace_summary_report.txt'), 'w', encoding='utf-8') as f:
         f.write(f'avg. E2ETime of iters among all ranks: {sum(iter_e2e_time) / len(iter_e2e_time) / 1e3 :.3f} ms\n')
         f.write(f'avg. SharedBW (i.e. sum(data_size * busbw_factor) / GPU_comm_busy_time  per rank) among all ranks: {sum(sbw_lst) / len(sbw_lst) :.3f} GB/s\n')
-        
+
         f.write(f'\n{" ":>70s}|{" ":>5s}|{"AVG.":^19s}|{"p01":^8s}|{"p50":^8s}|{"p90":^8s}|{"p99":^8s}|\n')
 
         f.write(f'{"kernel":>50s} {"size":>12s} {"#rks":>6s}|{"#pgs":>5s}|{"  dur":>10s} ')
@@ -261,4 +261,4 @@ def analyze_profiler_trace(trace_dir: str, report_dir: str):
             for i in range(2, len(v)):
                 f.write(f'{v[i]:>8.2f}|')
             f.write('\n')
-        
+
