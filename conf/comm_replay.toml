@@ -1,0 +1,26 @@
+[basic]
+master_ip = "192.168.1.100"
+master_port = "6000"
+device = "cuda"
+backend = "nccl"
+
+[logging]
+log_level = "INFO"
+
+[trace]
+trace_path = "/data/traces/"
+trace_type = "et"
+use_one_trace = true
+disable_parallel_read = false
+
+[replay]
+dry_run = false
+num_replays = 10
+colls_per_batch = 5
+output_path = "/results/"
+output_ranks = "0,1,2"
+
+[profiler]
+enable_profiler = true
+profiler_num_replays_start = 3
+profiler_num_replays = 5
