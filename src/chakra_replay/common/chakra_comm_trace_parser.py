@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import ClassVar, Dict, List, Optional, Tuple
 
-from chakra_replay.comm.comm_op import CollCommOp, PointToPointCommOp, BaseCommOp
+from chakra_replay.comm.comm_op import BaseCommOp, CollCommOp, PointToPointCommOp
 from chakra_replay.common.execution_trace import ExecutionTrace
 from chakra_replay.common.utils import param_to_comm_name
 
@@ -84,7 +84,9 @@ class ChakraCommTraceParser:
         process_group_descriptions: Dict[int, Dict[int, str]],
     ) -> List[BaseCommOp]:
         comm_ops: List[BaseCommOp] = []
-        flattened_process_group_ranks = {pg_id: ranks for pg_map in process_group_ranks.values() for pg_id, ranks in pg_map.items()}
+        flattened_process_group_ranks = {
+            pg_id: ranks for pg_map in process_group_ranks.values() for pg_id, ranks in pg_map.items()
+        }
 
         for node in execution_trace.nodes.values():
             if node.name != "record_param_comms":
@@ -100,6 +102,7 @@ class ChakraCommTraceParser:
                 comm_op.world_size = len(comm_op.group_ranks)
 
             if isinstance(comm_op, CollCommOp):
+                # TODO: Isn't it better to have configure_coll_op?
                 comm_op.in_msg_size = node.commArgs.in_msg_nelems
                 comm_op.out_msg_size = node.commArgs.out_msg_nelems
                 comm_op.dtype = node.commArgs.dtype.lower()
@@ -134,6 +137,11 @@ class ChakraCommTraceParser:
 
     def _configure_all_to_allv_op(self, comm_op: CollCommOp, node) -> CollCommOp:
         comm_op.world_size = comm_op.world_size or self.num_ranks
-        comm_op.input_splits = json.loads(node.commArgs.in_split_size) or [comm_op.in_msg_size // comm_op.world_size] * comm_op.world_size
-        comm_op.output_splits = json.loads(node.commArgs.out_split_size) or [comm_op.out_msg_size // comm_op.world_size] * comm_op.world_size
+        comm_op.input_splits = (
+            json.loads(node.commArgs.in_split_size) or [comm_op.in_msg_size // comm_op.world_size] * comm_op.world_size
+        )
+        comm_op.output_splits = (
+            json.loads(node.commArgs.out_split_size)
+            or [comm_op.out_msg_size // comm_op.world_size] * comm_op.world_size
+        )
         return comm_op
