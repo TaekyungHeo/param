@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from .chakra_comm_replayer import ChakraCommReplayer
+from .comm_op import CommOp
 from .tensor_allocator import TensorAllocator
 
-__all__ = ["ChakraCommReplayer", "TensorAllocator"]
+__all__ = ["ChakraCommReplayer", "CommOp", "TensorAllocator"]

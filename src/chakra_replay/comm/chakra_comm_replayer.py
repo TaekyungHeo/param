@@ -11,36 +11,15 @@ from typing import List, Tuple, Union
 import torch
 
 from chakra_replay.common import ChakraCommTraceParser
-from chakra_replay.common.utils import read_comms_env_vars
+from chakra_replay.common.utils import param_to_comm_name, read_comms_env_vars
 from chakra_replay.config import CommReplayConfig
 
 from .backend import BackendContext, PyTorchDistBackend, PyTorchTPUBackend
-from .comm_utils import CollArgs, CommArgs, TensorAllocator
+from .comm_op import CommOp
+from .comm_utils import CollArgs
+from .tensor_allocator import TensorAllocator
 
 SUPPORTED_P2P_OPS = ["send", "recv", "isend", "irecv"]
-
-
-def param_to_comm_name(name: str, supported_comms: List[str] | None = None) -> str:
-    name_aliases = {
-        "alltoall": "all_to_all",
-        "alltoallv": "all_to_allv",
-        "alltoallbase": "all_to_allv",
-        "alltoallsingle": "all_to_all_single",
-        "allreduce": "all_reduce",
-        "allgather": "all_gather",
-        "allgatherbase": "all_gather_base",
-        "reducescatter": "reduce_scatter",
-        "reducescatterbase": "reduce_scatter_base",
-        "recvanysource": "recv",
-    }
-
-    new_name = "".join(x for x in name.lower() if x.isalpha())
-    new_name = name_aliases.get(new_name, name)
-
-    if supported_comms and new_name not in supported_comms:
-        logging.error(f"{name} is not a supported communication. Supported: {supported_comms}")
-
-    return new_name
 
 
 class ChakraCommReplayer:
@@ -69,7 +48,7 @@ class ChakraCommReplayer:
         logging.error(f"Unsupported backend: {backend_name}")
         raise ValueError(f"Unsupported backend: {backend_name}")
 
-    def load_trace_operations(self, dir_path: Path) -> List[CommArgs]:
+    def load_trace_operations(self, dir_path: Path) -> List[CommOp]:
         try:
             parser = ChakraCommTraceParser(self.backend.context.world_size, self.backend.context.global_rank, dir_path)
             ops = parser.parse()
@@ -97,7 +76,7 @@ class ChakraCommReplayer:
         for idx, op in enumerate(self.comm_ops):
             self.process_single_operation(op, idx)
 
-    def process_single_operation(self, op: CommArgs, idx: int) -> None:
+    def process_single_operation(self, op: CommOp, idx: int) -> None:
         op_name = param_to_comm_name(op.comms)
         self.get_communication_group(op)
         inp, out = self.prepare_communication(op, regenerate_tensors=not self.reuse_tensors)
@@ -105,7 +84,7 @@ class ChakraCommReplayer:
         self.coll_args.output_tensor = out
         self.execute_collective(op_name, op)
 
-    def get_communication_group(self, op: CommArgs) -> Tuple[int, str]:
+    def get_communication_group(self, op: CommOp) -> Tuple[int, str]:
         group = (
             self.coll_args.groups.get(op.pg_id)
             if op.pg_id is not None and not self.shrink
@@ -114,12 +93,12 @@ class ChakraCommReplayer:
         return self.backend.get_group_rank(group)
 
     def prepare_communication(
-        self, op: CommArgs, regenerate_tensors: bool = True
+        self, op: CommOp, regenerate_tensors: bool = True
     ) -> Tuple[torch.Tensor, Union[List[torch.Tensor], torch.Tensor]]:
         self._update_comm_group(op)
         return self.tensor_allocator.generate_io_tensors(op, regenerate_tensors)
 
-    def _update_comm_group(self, op: CommArgs) -> None:
+    def _update_comm_group(self, op: CommOp) -> None:
         if op.pg_id is not None and not self.shrink:
             self.coll_args.group = self.coll_args.groups[op.pg_id]
             self.coll_args.world_size = op.world_size
@@ -127,7 +106,7 @@ class ChakraCommReplayer:
             self.coll_args.group = self.backend.get_default_group()
             self.coll_args.world_size = self.world_size
 
-    def execute_collective(self, op_name: str, op: CommArgs) -> None:
+    def execute_collective(self, op_name: str, op: CommOp) -> None:
         try:
             collective_method = getattr(self.backend, op_name)
         except AttributeError as err:

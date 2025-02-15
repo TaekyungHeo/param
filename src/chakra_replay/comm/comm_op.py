@@ -4,8 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import List, Optional
 
 
 @dataclass
@@ -40,33 +40,3 @@ class CommOp:
     src_rank: Optional[int] = None
     dst_rank: Optional[int] = None
     use_batch_p2p: Optional[bool] = None
-
-    # GEMM Attributes
-    mm0_dim0: Optional[int] = None
-    mm0_dim1: Optional[int] = None
-    mm1_dim0: Optional[int] = None
-    mm1_dim1: Optional[int] = None
-
-    # Embedding Lookup Attributes
-    direction: int = 0
-    embedding_dim: Optional[int] = None
-    num_embeddings: Optional[int] = None
-    batch_size: Optional[int] = None
-    num_embedding_tables_per_device: Optional[int] = None
-    num_embedding_tables_batched: Optional[int] = None
-    bag_size: Optional[int] = None
-
-    def to_dict(self) -> Dict[str, Optional[Union[str, int, List[int]]]]:
-        return {k: v for k, v in asdict(self).items() if v is not None}
-
-    def to_embedding_lookup_tuple(
-        self,
-    ) -> Tuple[int, Optional[int], Optional[int], Optional[int], Optional[int], Optional[int]]:
-        return (
-            self.direction,
-            self.embedding_dim,
-            self.num_embeddings,
-            self.batch_size,
-            self.num_embedding_tables_per_device,
-            self.bag_size,
-        )
