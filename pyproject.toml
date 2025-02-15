@@ -7,6 +7,10 @@ dependencies = [
     "pydantic==2.8.2",
 ]
 
+[project.optional-dependencies]
+torch = ["torch>=2.0.0"]
+tpu = ["torch-xla>=2.0.0"]
+
 [build-system]
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
@@ -65,3 +69,4 @@ exclude_also = ["@abstractmethod"]
 
 [tool.pyright]
 include = ["src", "tests"]
+exclude = ["src/chakra_replay/comm/backend/pytorch_tpu_backend.py"]
