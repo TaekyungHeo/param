@@ -16,10 +16,6 @@ class CommOp:
     trace_id: Optional[int] = None
     request_id: Optional[int] = None
     comms: Optional[str] = None
-    compute: Optional[str] = None
-
-    # Time & Execution Metadata
-    start_time_ns: Optional[int] = None
     dtype: Optional[str] = None
 
     # Communication Details
@@ -30,13 +26,10 @@ class CommOp:
 
     # Process Group Information
     process_group_id: Optional[int] = None
-    process_group_desc: Optional[str] = None
     group_ranks: Optional[List[int]] = None
     world_size: Optional[int] = None
-    marker_stack: Optional[List[str]] = None
 
     # Role-Specific Data
     root: Optional[int] = None
     src_rank: Optional[int] = None
     dst_rank: Optional[int] = None
-    use_batch_p2p: Optional[bool] = None
