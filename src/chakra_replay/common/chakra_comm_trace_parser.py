@@ -7,85 +7,84 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import ClassVar, Dict, List, Optional, Tuple
 
-from chakra_replay.comm import CommOp
-from chakra_replay.common import ExecutionTrace
+from chakra_replay.comm.comm_op import CollCommOp, PointToPointCommOp, BaseCommOp
+from chakra_replay.common.execution_trace import ExecutionTrace
 from chakra_replay.common.utils import param_to_comm_name
-
-SUPPORTED_P2P_OPS = {"send", "recv", "isend", "irecv"}
 
 
 class ChakraCommTraceParser:
-    """Parses Chakra execution traces and converts them into communication operations."""
+    """Parse Chakra execution traces and converts them into structured communication ops."""
 
-    def __init__(self, num_ranks: int, rank: int, directory_path: Path) -> None:
+    SUPPORTED_P2P_OPS: ClassVar[set[str]] = {"send", "recv", "isend", "irecv"}
+
+    def __init__(self, num_ranks: int, rank: int, trace_directory: Path) -> None:
         self.num_ranks = num_ranks
         self.rank = rank
-        self.directory_path = directory_path
+        self.trace_directory = trace_directory
         logging.debug(f"Initialized ChakraCommTraceParser with num_ranks={num_ranks}, rank={rank}")
 
-    def parse(self) -> List[CommOp]:
-        """Parse communication operations from Chakra execution traces."""
-        trace_file = self.directory_path / f"rank-{self.rank}.json"
-        if not trace_file.exists():
-            raise FileNotFoundError(f"Trace file not found: {trace_file}")
+    def parse_trace(self) -> List[BaseCommOp]:
+        trace_file_path = self.trace_directory / f"rank-{self.rank}.json"
+        if not trace_file_path.exists():
+            raise FileNotFoundError(f"Trace file not found: {trace_file_path}")
 
-        with trace_file.open("r") as file:
-            in_trace = json.load(file)
+        logging.info(f"Loading execution trace from {trace_file_path}")
 
-        execution_trace = ExecutionTrace(in_trace)
+        with trace_file_path.open("r") as file:
+            trace_data = json.load(file)
+
+        execution_trace = ExecutionTrace(trace_data)
         if execution_trace.schema_pytorch() < (1, 0, 3):
-            raise ValueError(f"Trace version >1.0.3 is required, but found {execution_trace.schema}")
+            raise ValueError(f"Incompatible trace version: {execution_trace.schema}. Expected >1.0.3.")
 
-        pg_ranks_map, pg_desc_map = self._parse_process_groups(execution_trace)
-        parsed_ops = self._parse_communication_ops(execution_trace, pg_ranks_map, pg_desc_map)
+        process_group_ranks, process_group_descriptions = self._parse_process_groups(execution_trace)
+        comm_ops = self._parse_comm_ops(execution_trace, process_group_ranks, process_group_descriptions)
 
-        logging.info(f"Parsed {len(parsed_ops)} communication operations from {trace_file}")
-        return parsed_ops
+        logging.info(f"Extracted {len(comm_ops)} communication ops from {trace_file_path}")
+        return comm_ops
 
     def _parse_process_groups(
         self, execution_trace: ExecutionTrace
     ) -> Tuple[Dict[int, Dict[int, List[int]]], Dict[int, Dict[int, str]]]:
-        """Extract process group information from the execution trace."""
-        pg_ranks_map: Dict[int, Dict[int, List[int]]] = {}
-        pg_desc_map: Dict[int, Dict[int, str]] = {}
+        process_group_ranks: Dict[int, Dict[int, List[int]]] = {}
+        process_group_descriptions: Dict[int, Dict[int, str]] = {}
 
         for node in execution_trace.nodes.values():
             if "process_group:init" not in node.name:
                 continue
 
             try:
-                pg_objs = json.loads(node.inputs[0])
+                process_group_data = json.loads(node.inputs[0])
             except json.JSONDecodeError:
-                logging.warning("Skipping truncated JSON input for process group initialization.")
+                logging.warning("Skipping process group initialization due to invalid JSON input.")
                 continue
 
-            pg_ranks_map[node.id] = {}
-            pg_desc_map[node.id] = {}
+            process_group_ranks[node.id] = {}
+            process_group_descriptions[node.id] = {}
 
-            for pg in pg_objs:
-                if not pg["pg_name"].isdigit():
-                    logging.warning(f"Skipping unsupported process group name '{pg['pg_name']}' in node {node.id}.")
+            for group in process_group_data:
+                if not group["pg_name"].isdigit():
+                    logging.warning(f"Skipping unsupported process group name '{group['pg_name']}' in node {node.id}.")
                     continue
 
-                pg_id = int(pg["pg_name"])
-                pg_ranks_map[node.id][pg_id] = pg.get("ranks", list(range(pg["group_size"])))
-                pg_desc_map[node.id][pg_id] = pg["pg_desc"]
+                group_id = int(group["pg_name"])
+                process_group_ranks[node.id][group_id] = group.get("ranks", list(range(group["group_size"])))
+                process_group_descriptions[node.id][group_id] = group["pg_desc"]
 
-            break  # Only process the first process_group init node
+            break  # Only process the first process group initialization node
 
-        return pg_ranks_map, pg_desc_map
+        return process_group_ranks, process_group_descriptions
 
-    def _parse_communication_ops(
+    def _parse_comm_ops(
         self,
         execution_trace: ExecutionTrace,
-        pg_ranks_map: Dict[int, Dict[int, List[int]]],
-        pg_desc_map: Dict[int, Dict[int, str]],
-    ) -> List[CommOp]:
-        """Extract communication operations from the execution trace."""
-        comms_op_list: List[CommOp] = []
-        pg_ranks_flatten = {pg_id: ranks for pg_map in pg_ranks_map.values() for pg_id, ranks in pg_map.items()}
+        process_group_ranks: Dict[int, Dict[int, List[int]]],
+        process_group_descriptions: Dict[int, Dict[int, str]],
+    ) -> List[BaseCommOp]:
+        comm_ops: List[BaseCommOp] = []
+        flattened_process_group_ranks = {pg_id: ranks for pg_map in process_group_ranks.values() for pg_id, ranks in pg_map.items()}
 
         for node in execution_trace.nodes.values():
             if node.name != "record_param_comms":
@@ -97,59 +96,44 @@ class ChakraCommTraceParser:
 
             if node.commArgs.pg_name and node.commArgs.pg_name.isdigit():
                 comm_op.process_group_id = int(node.commArgs.pg_name)
-                comm_op.group_ranks = pg_ranks_flatten.get(comm_op.process_group_id, [])
+                comm_op.group_ranks = flattened_process_group_ranks.get(comm_op.process_group_id, [])
                 comm_op.world_size = len(comm_op.group_ranks)
 
-            if comm_op.comms not in ("wait", "barrier"):
+            if isinstance(comm_op, CollCommOp):
                 comm_op.in_msg_size = node.commArgs.in_msg_nelems
                 comm_op.out_msg_size = node.commArgs.out_msg_nelems
                 comm_op.dtype = node.commArgs.dtype.lower()
 
-            if comm_op.comms in SUPPORTED_P2P_OPS:
-                self._handle_p2p_communication(comm_op, node.rank)
-            elif comm_op.comms in {"reduce", "broadcast", "gather", "scatter"}:
-                comm_op.root = comm_op.group_ranks[node.rank]
+            if isinstance(comm_op, PointToPointCommOp):
+                self._configure_p2p_op(comm_op, node.rank)
 
-            if comm_op.comms == "all_to_allv":
-                comm_op = self._handle_all_to_allv(comm_op, node)
+            if isinstance(comm_op, CollCommOp) and comm_op.name == "all_to_allv":
+                comm_op = self._configure_all_to_allv_op(comm_op, node)
 
-            comms_op_list.append(comm_op)
+            comm_ops.append(comm_op)
 
-        logging.debug(f"Extracted {len(comms_op_list)} communication operations.")
-        return comms_op_list
+        logging.debug(f"Extracted {len(comm_ops)} communication ops.")
+        return comm_ops
 
-    def _initialize_comm_op(self, node) -> Optional[CommOp]:
-        """Initialize a communication operation from a trace node."""
-        req_id = node.inputs[0] if isinstance(node.inputs[0], (int, list)) else node.inputs[1]
-        recorded_rank = node.inputs[2] if isinstance(node.inputs[0], (int, list)) else node.inputs[3]
-
+    def _initialize_comm_op(self, node) -> Optional[BaseCommOp]:
         comms_name = param_to_comm_name(node.commArgs.collective_name.lower())
         if comms_name == "init":
             return None
 
-        return CommOp(
-            trace_id=node.id,
-            comms=comms_name,
-            request_id=(req_id, False) if isinstance(req_id, int) else req_id,
-        )
+        if comms_name in self.SUPPORTED_P2P_OPS:
+            return PointToPointCommOp(id=node.id, name=comms_name)
+        return CollCommOp(id=node.id, name=comms_name)
 
-    def _handle_p2p_communication(self, comm_op: CommOp, recorded_rank: int) -> None:
-        """Handle point-to-point communication operations."""
-        if "send" in comm_op.comms:
+    def _configure_p2p_op(self, comm_op: PointToPointCommOp, recorded_rank: int) -> None:
+        if "send" in comm_op.name:
             comm_op.src_rank = self.rank
             comm_op.dst_rank = comm_op.group_ranks[recorded_rank]
-        elif "recv" in comm_op.comms:
+        elif "recv" in comm_op.name:
             comm_op.src_rank = comm_op.group_ranks[recorded_rank]
             comm_op.dst_rank = self.rank
 
-    def _handle_all_to_allv(self, comm_op: CommOp, node) -> CommOp:
-        """Handle all-to-all variable communication operations."""
+    def _configure_all_to_allv_op(self, comm_op: CollCommOp, node) -> CollCommOp:
         comm_op.world_size = comm_op.world_size or self.num_ranks
-        comm_op.in_split = (
-            json.loads(node.commArgs.in_split_size) or [comm_op.in_msg_size // comm_op.world_size] * comm_op.world_size
-        )
-        comm_op.out_split = (
-            json.loads(node.commArgs.out_split_size)
-            or [comm_op.out_msg_size // comm_op.world_size] * comm_op.world_size
-        )
+        comm_op.input_splits = json.loads(node.commArgs.in_split_size) or [comm_op.in_msg_size // comm_op.world_size] * comm_op.world_size
+        comm_op.output_splits = json.loads(node.commArgs.out_split_size) or [comm_op.out_msg_size // comm_op.world_size] * comm_op.world_size
         return comm_op

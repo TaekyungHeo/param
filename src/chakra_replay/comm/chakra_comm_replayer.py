@@ -77,7 +77,7 @@ class ChakraCommReplayer:
             self.process_single_operation(op, idx)
 
     def process_single_operation(self, op: CommOp, idx: int) -> None:
-        op_name = param_to_comm_name(op.comms)
+        op_name = param_to_comm_name(op.name)
         self.get_communication_group(op)
         inp, out = self.prepare_communication(op, regenerate_tensors=not self.reuse_tensors)
         self.coll_args.input_tensor = inp

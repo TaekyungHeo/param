@@ -9,27 +9,38 @@ from typing import List, Optional
 
 
 @dataclass
-class CommOp:
-    """Store parameters for collective communication operations and compute kernels."""
+class BaseOp:
+    """Base class for all operations."""
 
-    # Identifiers & Core Metadata
-    trace_id: Optional[int] = None
-    request_id: Optional[int] = None
-    comms: Optional[str] = None
+    id: Optional[int] = None
+    name: Optional[str] = None
+
+
+@dataclass
+class BaseCommOp(BaseOp):
+    """Base class for all communication operations."""
+
     dtype: Optional[str] = None
-
-    # Communication Details
-    in_msg_size: Optional[int] = None
-    out_msg_size: Optional[int] = None
-    in_split: Optional[List[int]] = None
-    out_split: Optional[List[int]] = None
-
-    # Process Group Information
     process_group_id: Optional[int] = None
     group_ranks: Optional[List[int]] = None
     world_size: Optional[int] = None
 
-    # Role-Specific Data
+
+@dataclass
+class CollCommOp(BaseCommOp):
+    """Represents collective communication operations (e.g., all_reduce, broadcast)."""
+
     root: Optional[int] = None
+    in_msg_size: Optional[int] = None
+    out_msg_size: Optional[int] = None
+    input_splits: Optional[List[int]] = None
+    output_splits: Optional[List[int]] = None
+
+
+@dataclass
+class PointToPointCommOp(BaseCommOp):
+    """Represents point-to-point communication operations (e.g., send, recv)."""
+
     src_rank: Optional[int] = None
     dst_rank: Optional[int] = None
+    msg_size: Optional[int] = None
