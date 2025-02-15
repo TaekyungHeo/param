@@ -10,7 +10,7 @@ from typing import List, Tuple, Union
 
 import torch
 
-from chakra_replay.common import ChakraTraceParser
+from chakra_replay.common import ChakraCommTraceParser
 from chakra_replay.common.utils import read_comms_env_vars
 from chakra_replay.config import CommReplayConfig
 
@@ -71,7 +71,7 @@ class ChakraCommReplayer:
 
     def load_trace_operations(self, dir_path: Path) -> List[CommArgs]:
         try:
-            parser = ChakraTraceParser(self.backend.context.world_size, self.backend.context.global_rank, dir_path)
+            parser = ChakraCommTraceParser(self.backend.context.world_size, self.backend.context.global_rank, dir_path)
             ops = parser.parse()
             logging.info(f"Loaded {len(ops)} trace operations.")
             return ops
